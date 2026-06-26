@@ -11,7 +11,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@essensio/engine": "file:../ts-engine",
+    "@essensio/engine": "github:essensio/ts-engine",
     "vue": "^3.5.38"
   },
   "devDependencies": {
