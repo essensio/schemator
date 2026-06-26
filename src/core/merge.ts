@@ -1,8 +1,9 @@
 import type { JsonValue } from './types'
 
-// Слияние множества значений в один тип. Массив объектов с РАЗНЫМ набором полей
-// сводится к кортежу с ОБЪЕДИНЕНИЕМ полей (а не к «сырью»). Здесь — единственный
-// источник классификации множества; сигнатура, эмиттер и группы берут отсюда.
+// Разбор множества значений на ветви (`branchesOf`) — единственный источник
+// структуры; эмиттер, сигнатура и группы берут отсюда. Объекты с РАЗНЫМ набором
+// полей сливаются в кортеж с ОБЪЕДИНЕНИЕМ полей; разнородные виды дают несколько
+// ветвей (union). Никакого «сырья» — типизируется любое множество.
 
 export type JsonObject = { [k: string]: JsonValue }
 
@@ -22,20 +23,39 @@ export function scalarDomain(v: JsonValue): string {
   }
 }
 
-// Вид множества значений, стоящих в одной логической позиции:
-//   object — все объекты (объединяем поля); array — все массивы (сливаем элементы);
-//   scalar — все скаляры одного домена; empty — пусто; mixed — несводимо (сырьё).
-export type SetKind = 'empty' | 'object' | 'array' | 'scalar' | 'mixed'
+// Ветви множества значений одной логической позиции. Разнородное множество даёт
+// несколько ветвей → union:
+//   objects — все объекты (сливаются в один кортеж по объединению полей);
+//   arrays  — все массивы (сливаются в одно отношение);
+//   domains — различные скалярные домены (без Пусто), в каноне Число<Строка<Булево;
+//   hasNull — присутствует ли null (домен Пусто — всегда последний член union).
+// Одна ветвь → однородный тип; несколько → union; ноль ветвей → пустое множество.
+const DOMAIN_RANK: Record<string, number> = { Число: 0, Строка: 1, Булево: 2 }
 
-export function classifySet(values: JsonValue[]): SetKind {
-  if (values.length === 0) return 'empty'
-  if (values.every(isObjectValue)) return 'object'
-  if (values.every((v) => Array.isArray(v))) return 'array'
-  const domain = scalarDomain(values[0])
-  const allSameScalar = values.every(
-    (v) => !isObjectValue(v) && !Array.isArray(v) && scalarDomain(v) === domain,
-  )
-  return allSameScalar ? 'scalar' : 'mixed'
+export type Branches = {
+  objects: JsonObject[]
+  arrays: JsonValue[]
+  domains: string[]
+  hasNull: boolean
+}
+
+export function branchesOf(values: JsonValue[]): Branches {
+  const objects: JsonObject[] = []
+  const arrays: JsonValue[] = []
+  const domains = new Set<string>()
+  let hasNull = false
+  for (const v of values) {
+    if (v === null) hasNull = true
+    else if (isObjectValue(v)) objects.push(v)
+    else if (Array.isArray(v)) arrays.push(v)
+    else domains.add(scalarDomain(v))
+  }
+  return {
+    objects,
+    arrays,
+    domains: [...domains].sort((a, b) => DOMAIN_RANK[a] - DOMAIN_RANK[b]),
+    hasNull,
+  }
 }
 
 /** Объединение ключей всех объектов в порядке первой встречи. */

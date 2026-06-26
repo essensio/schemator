@@ -13,12 +13,12 @@ describe('App — сквозной сценарий в jsdom', () => {
       '{orders: {address: Строка, date: Строка, qty: Число}[]}',
     )
 
-    // три анонимных типа: корень-кортеж, отношение orders, элемент-кортеж
+    // два анонимных кортежа: корень и элемент (отношение orders не именуется)
     const names = w.findAll('button').filter((b) => b.text() === 'назвать тип')
-    expect(names.length).toBe(3)
+    expect(names.length).toBe(2)
 
-    // называем элемент (третий контрол) «Заказ»
-    await names[2].trigger('click')
+    // называем элемент (второй контрол) «Заказ»
+    await names[1].trigger('click')
     await w.get('input').setValue('Заказ')
     await w.findAll('button').find((b) => b.text() === '✓')!.trigger('click')
 

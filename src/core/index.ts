@@ -3,7 +3,7 @@
 // schemator своих типов essensio НЕ заводит.
 
 import type { JsonValue, Names, Path } from './types'
-import { classifySet, flattenArrays, unionKeys, valuesForKey, type JsonObject } from './merge'
+import { branchesOf, flattenArrays, unionKeys, valuesForKey } from './merge'
 import { signatureOfSet } from './signature'
 import { emitEssensio } from './emit'
 
@@ -26,25 +26,19 @@ export type Analysis =
       groups: Map<string, Path[]>
     }
 
-// Группы одинаковых форм (кортежи и отношения, по слитой сигнатуре) — для
-// «применить ко всем похожим». Обходит ту же слитую структуру, что и эмиттер.
+// Группы одинаковых форм — для «применить ко всем похожим». Группируются только
+// КОРТЕЖИ (по сигнатуре кортежа-ветви): отношение не именуется (таблица неявна), а
+// скаляры/Пусто bulk-именования не имеют. Обходит те же ветви, что и эмиттер.
 function collectGroups(values: JsonValue[], path: Path, groups: Map<string, Path[]>): void {
-  const add = () => {
-    const sig = signatureOfSet(values)
-    const paths = groups.get(sig) ?? []
-    paths.push(path)
-    groups.set(sig, paths)
+  const b = branchesOf(values)
+  if (b.objects.length) {
+    const sig = signatureOfSet(b.objects)
+    groups.set(sig, [...(groups.get(sig) ?? []), path])
+    for (const k of unionKeys(b.objects)) collectGroups(valuesForKey(b.objects, k), `${path}.${k}`, groups)
   }
-  const kind = classifySet(values)
-  if (kind === 'object') {
-    add()
-    const objs = values as JsonObject[]
-    for (const k of unionKeys(objs)) collectGroups(valuesForKey(objs, k), `${path}.${k}`, groups)
-  } else if (kind === 'array') {
-    add()
-    collectGroups(flattenArrays(values), `${path}[]`, groups)
+  if (b.arrays.length) {
+    collectGroups(flattenArrays(b.arrays), `${path}[]`, groups)
   }
-  // scalar / empty / mixed — не группируем (скаляры без bulk; сырьё/пусто не тип).
 }
 
 /**

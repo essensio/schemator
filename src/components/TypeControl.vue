@@ -3,7 +3,7 @@ import { computed, inject, nextTick, ref } from 'vue'
 import { MARKUP } from '../markup'
 import { isValidTypeName } from '../core'
 
-const props = defineProps<{ path: string; signature: string; kind: 'tuple' | 'scalar' | 'relation' }>()
+const props = defineProps<{ path: string; signature: string; kind: 'tuple' | 'scalar' }>()
 const ctx = inject(MARKUP)!
 
 const draft = ref('')

@@ -26,8 +26,8 @@ describe('классификация значения', () => {
     expect(valueKind(null)).toBe('scalar')
     expect(valueKind({})).toBe('tuple')
     expect(valueKind([{ x: 1 }, { x: 2 }])).toBe('relation')
-    expect(valueKind([{ a: 1, b: 2 }, { a: 3 }])).toBe('relation') // разные поля — не сырьё
-    expect(valueKind([1, 'a'])).toBe('raw') // объект+скаляр/разные скаляры — сырьё
+    expect(valueKind([{ a: 1, b: 2 }, { a: 3 }])).toBe('relation') // разные поля — объединяются
+    expect(valueKind([1, 'a'])).toBe('relation') // разнородный — отношение с union элемента
     expect(valueKind([])).toBe('empty')
   })
 })
@@ -43,10 +43,23 @@ describe('печать essensio (через движок)', () => {
   it('скаляры и краевые формы', () => {
     expect(emitEssensio({}, {})).toBe('{}')
     expect(emitEssensio([1, 2, 3], {})).toBe('Число[]')
-    expect(emitEssensio([], {})).toBe('?[]')
-    expect(emitEssensio([1, 'a'], {})).toBe('?[]')
+    expect(emitEssensio([], {})).toBe('{}[]') // пустой массив: элемент — пустой кортеж-заглушка
     expect(emitEssensio({ a: null }, {})).toBe('{a: Пусто}')
     expect(emitEssensio({ 'order-id': 1 }, {})).toBe('{"order-id": Число}')
+  })
+
+  it('разнородный массив → union элемента', () => {
+    expect(emitEssensio([1, 'a'], {})).toBe('(Число | Строка)[]')
+    expect(emitEssensio([1, null], {})).toBe('(Число | Пусто)[]') // необязательность
+    expect(emitEssensio([{ x: 1 }, null], {})).toBe('({x: Число} | Пусто)[]')
+    expect(emitEssensio([1, 'a', true], {})).toBe('(Число | Строка | Булево)[]')
+  })
+
+  it('union: имя получает структурная ветвь, не объединение', () => {
+    // элемент массива — кортеж-или-null; именуем кортеж, union ссылается на имя
+    expect(emitEssensio([{ x: 1 }, null], { '$[]': 'Точка' })).toBe(
+      'Точка = {x: Число}\n\n(Точка | Пусто)[]',
+    )
   })
 
   it('массив объектов с разными полями — объединение в кортеж', () => {
@@ -60,11 +73,10 @@ describe('печать essensio (через движок)', () => {
     )
   })
 
-  it('именование самого отношения и его элемента', () => {
+  it('отношение не именуется (таблица неявна) — имя получает только элемент', () => {
+    // имя на пути отношения ($.orders) игнорируется; именуется лишь элемент
     expect(ok(ORDERS, { '$.orders': 'Заказы', '$.orders[]': 'Заказ' })).toBe(
-      'Заказ = {address: Строка, date: Строка, qty: Число}\n' +
-        'Заказы = Заказ[]\n\n' +
-        '{orders: Заказы}',
+      'Заказ = {address: Строка, date: Строка, qty: Число}\n\n{orders: Заказ[]}',
     )
   })
 

@@ -68,10 +68,10 @@ const keyText = (key: string) => (isValidTypeName(key) ? key : JSON.stringify(ke
     </template>
   </span>
 
-  <!-- отношение: именуемо (`Заказы = Заказ[]`); все элементы, первый интерактивен -->
+  <!-- отношение: само НЕ именуется (таблица неявна) — имя получает элемент; все
+       элементы показываем, первый интерактивен -->
   <span v-else-if="kind === 'relation'" class="inline-block align-top">
-    <TypeControl v-if="!plain" :path="path" :signature="signature" kind="relation" />
-    <span class="text-slate-400"> [</span>
+    <span class="text-slate-400">[</span>
     <div class="pl-4">
       <div v-for="(item, i) in shown" :key="i">
         <JsonNode
@@ -88,17 +88,5 @@ const keyText = (key: string) => (isValidTypeName(key) ? key : JSON.stringify(ke
   <!-- пустой массив -->
   <span v-else-if="kind === 'empty'" class="text-slate-400">
     [] <span class="text-xs italic">пусто</span>
-  </span>
-
-  <!-- разнородный массив: сырьё -->
-  <span v-else class="inline-block align-top">
-    <span class="mr-1 text-xs italic text-amber-700">сырьё</span>
-    <span class="text-slate-400">[</span>
-    <div class="pl-4">
-      <div v-for="(item, i) in arr" :key="i">
-        <JsonNode :value="item" :path="`${path}[${i}]`" :plain="plain" /><span v-if="i < arr.length - 1" class="text-slate-400">,</span>
-      </div>
-    </div>
-    <span class="text-slate-400">]</span>
   </span>
 </template>
