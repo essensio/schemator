@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, provide, reactive, ref, watch } from 'vue'
-import { analyze, isValidTypeName, type Names } from './core'
+import { analyze, isValidTypeName, nameFreeFor, type Names } from './core'
 import { MARKUP, type MarkupCtx } from './markup'
 import { examples } from './examples'
 import Button from './components/Button.vue'
@@ -37,18 +37,17 @@ const ctx: MarkupCtx = {
   names,
   editing,
   nameOf: (path) => names[path],
-  groupCount: (signature) =>
-    analysis.value.status === 'ok' ? analysis.value.groups.get(signature)?.length ?? 1 : 1,
   start: (path) => (editing.value = path),
   cancel: () => (editing.value = null),
-  submit: (path, signature, name, all) => {
+  // Имя принимается ⟺ валидно по грамматике И свободно для формы позиции (нет
+  // активного пути той же формы под другим именем — см. nameFreeFor). Иначе ввод
+  // отклоняется: имя не сохраняется, поле остаётся открытым (как при недопустимом).
+  submit: (path, name) => {
     const trimmed = name.trim()
     if (!isValidTypeName(trimmed)) return
-    const targets =
-      all && analysis.value.status === 'ok'
-        ? analysis.value.groups.get(signature) ?? [path]
-        : [path]
-    for (const p of targets) names[p] = trimmed
+    if (analysis.value.status !== 'ok') return
+    if (!nameFreeFor(analysis.value.value, names, path, trimmed)) return
+    names[path] = trimmed
     editing.value = null
   },
   clear: (path) => {

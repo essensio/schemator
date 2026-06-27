@@ -3,6 +3,8 @@ import {
   analyze,
   emitEssensio,
   valueKind,
+  elementNameKind,
+  unionMembers,
   signatureOfValue,
   isValidTypeName,
 } from '../src/core'
@@ -55,10 +57,26 @@ describe('печать essensio (через движок)', () => {
     expect(emitEssensio([1, 'a', true], {})).toBe('(Число | Строка | Булево)[]')
   })
 
-  it('union: имя получает структурная ветвь, не объединение', () => {
-    // элемент массива — кортеж-или-null; именуем кортеж, union ссылается на имя
+  it('union: имя всему союзу — по пути позиции', () => {
+    expect(emitEssensio([1, 'a'], { '$[]': 'Значение' })).toBe('Значение = Число | Строка\n\nЗначение[]')
     expect(emitEssensio([{ x: 1 }, null], { '$[]': 'Точка' })).toBe(
-      'Точка = {x: Число}\n\n(Точка | Пусто)[]',
+      'Точка = {x: Число} | Пусто\n\nТочка[]',
+    )
+  })
+
+  it('union: имя члену — по пути `путь|тег`', () => {
+    expect(emitEssensio([1, 'a'], { '$[]|Число': 'Целое', '$[]|Строка': 'Текст' })).toBe(
+      'Целое = Число\nТекст = Строка\n\n(Целое | Текст)[]',
+    )
+    // кортеж-член
+    expect(emitEssensio([{ x: 1 }, null], { '$[]|{}': 'Заказ' })).toBe(
+      'Заказ = {x: Число}\n\n(Заказ | Пусто)[]',
+    )
+  })
+
+  it('union: имя члену и всему союзу сочетаются', () => {
+    expect(emitEssensio([1, 'a'], { '$[]': 'Значение', '$[]|Число': 'Целое' })).toBe(
+      'Целое = Число\nЗначение = Целое | Строка\n\nЗначение[]',
     )
   })
 
@@ -88,16 +106,10 @@ describe('печать essensio (через движок)', () => {
   })
 })
 
-describe('analyze: статусы и группы', () => {
+describe('analyze: статусы', () => {
   it('пусто и ошибка', () => {
     expect(analyze('   ', {}).status).toBe('empty')
     expect(analyze('{bad', {}).status).toBe('error')
-  })
-
-  it('одинаковые формы группируются для «применить ко всем»', () => {
-    const a = analyze('{ "a": { "x": 1 }, "b": { "x": 2 } }', {})
-    if (a.status !== 'ok') throw new Error(a.status)
-    expect(a.groups.get(signatureOfValue({ x: 1 }))?.sort()).toEqual(['$.a', '$.b'])
   })
 })
 
@@ -106,5 +118,54 @@ describe('валидация имени (движок)', () => {
     expect(isValidTypeName('Заказ')).toBe(true)
     expect(isValidTypeName('order-id')).toBe(false)
     expect(isValidTypeName('or')).toBe(false)
+  })
+})
+
+describe('elementNameKind: именуемая ветвь элемент-типа массива', () => {
+  it('есть объекты → кортеж, независимо от порядка', () => {
+    expect(elementNameKind([{ a: 1 }, { a: 2 }])).toBe('tuple')
+    expect(elementNameKind([{ a: 1 }, null])).toBe('tuple')
+    expect(elementNameKind([null, { a: 1 }])).toBe('tuple') // ключ бага: кортеж не первым
+    expect(elementNameKind([1, { a: 1 }])).toBe('tuple')
+    expect(elementNameKind([{ a: 1 }, [1]])).toBe('tuple') // кортеж + отношение
+  })
+
+  it('ровно один член-скаляр (или Пусто) → скаляр', () => {
+    expect(elementNameKind([1, 2, 3])).toBe('scalar')
+    expect(elementNameKind(['a'])).toBe('scalar')
+    expect(elementNameKind([null])).toBe('scalar') // Пусто — тоже именуемый домен
+  })
+
+  it('союз без кортежа или отношение → именовать нечего', () => {
+    expect(elementNameKind([1, 'a'])).toBe(null) // Число | Строка
+    expect(elementNameKind([1, null])).toBe(null) // Число | Пусто
+    expect(elementNameKind([[1], [2]])).toBe(null) // отношение само не именуется
+  })
+})
+
+describe('unionMembers: члены союза для UI', () => {
+  it('одиночный тип — не союз', () => {
+    expect(unionMembers([1, 2, 3])).toEqual([])
+    expect(unionMembers([{ a: 1 }, { a: 2 }])).toEqual([])
+    expect(unionMembers([[1], [2]])).toEqual([])
+  })
+
+  it('скалярный союз — члены-домены, именуемы', () => {
+    expect(unionMembers([1, 'a'])).toEqual([
+      { tag: 'Число', label: 'Число', kind: 'scalar', nameable: true },
+      { tag: 'Строка', label: 'Строка', kind: 'scalar', nameable: true },
+    ])
+  })
+
+  it('кортеж-или-Пусто — канонический порядок', () => {
+    expect(unionMembers([null, { a: 1 }])).toEqual([
+      { tag: '{}', label: '{…}', kind: 'tuple', nameable: true },
+      { tag: 'Пусто', label: 'Пусто', kind: 'scalar', nameable: true },
+    ])
+  })
+
+  it('отношение-член — не именуется', () => {
+    const ms = unionMembers([[1], { a: 1 }])
+    expect(ms.find((m) => m.tag === '[]')).toMatchObject({ nameable: false })
   })
 })

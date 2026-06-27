@@ -2,48 +2,28 @@
 // Чистый TypeScript, без Vue. AST типов и их сериализация — из @essensio/engine;
 // schemator своих типов essensio НЕ заводит.
 
-import type { JsonValue, Names, Path } from './types'
-import { branchesOf, flattenArrays, unionKeys, valuesForKey } from './merge'
-import { signatureOfSet } from './signature'
+import type { JsonValue, Names } from './types'
 import { emitEssensio } from './emit'
 
 export type { JsonValue, Path, Names } from './types'
-export type { ValueKind } from './value'
-export { valueKind } from './value'
+export type { ValueKind, UnionMember } from './value'
+export { valueKind, elementNameKind, unionMembers } from './value'
 export { signatureOfValue } from './signature'
 export { emitEssensio } from './emit'
+// Форма позиции из пути и предусловие свободы имени для ввода (см. shape.ts).
+export { shapeAt, valuesAt, mutedNames, nameFreeFor } from './shape'
 // Проверка имени типа — по грамматике движка, без своей регулярки.
 export { isName as isValidTypeName } from '@essensio/engine'
 
 export type Analysis =
   | { status: 'empty' }
   | { status: 'error'; message: string }
-  | {
-      status: 'ok'
-      value: JsonValue
-      essensio: string
-      /** Сигнатура формы → пути всех узлов этой формы (для «применить ко всем»). */
-      groups: Map<string, Path[]>
-    }
-
-// Группы одинаковых форм — для «применить ко всем похожим». Группируются только
-// КОРТЕЖИ (по сигнатуре кортежа-ветви): отношение не именуется (таблица неявна), а
-// скаляры/Пусто bulk-именования не имеют. Обходит те же ветви, что и эмиттер.
-function collectGroups(values: JsonValue[], path: Path, groups: Map<string, Path[]>): void {
-  const b = branchesOf(values)
-  if (b.objects.length) {
-    const sig = signatureOfSet(b.objects)
-    groups.set(sig, [...(groups.get(sig) ?? []), path])
-    for (const k of unionKeys(b.objects)) collectGroups(valuesForKey(b.objects, k), `${path}.${k}`, groups)
-  }
-  if (b.arrays.length) {
-    collectGroups(flattenArrays(b.arrays), `${path}[]`, groups)
-  }
-}
+  | { status: 'ok'; value: JsonValue; essensio: string }
 
 /**
- * Полный разбор: из текста JSON и карты имён — значение, текст схемы и группы
- * одинаковых форм. Чистая функция: одни и те же вход и имена дают тот же результат.
+ * Полный разбор: из текста JSON и карты имён — значение и текст схемы. Чистая
+ * функция: одни и те же вход и имена дают тот же результат. Имена, накрывшие
+ * несколько форм, эмиттер снимает с печати (см. `emitEssensio`).
  */
 export function analyze(source: string, names: Names): Analysis {
   if (source.trim() === '') return { status: 'empty' }
@@ -55,7 +35,5 @@ export function analyze(source: string, names: Names): Analysis {
     return { status: 'error', message: (e as Error).message }
   }
 
-  const groups = new Map<string, Path[]>()
-  collectGroups([value], '$', groups)
-  return { status: 'ok', value, essensio: emitEssensio(value, names), groups }
+  return { status: 'ok', value, essensio: emitEssensio(value, names) }
 }

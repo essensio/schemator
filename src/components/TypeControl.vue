@@ -3,7 +3,7 @@ import { computed, inject, nextTick, ref } from 'vue'
 import { MARKUP } from '../markup'
 import { isValidTypeName } from '../core'
 
-const props = defineProps<{ path: string; signature: string; kind: 'tuple' | 'scalar' }>()
+const props = defineProps<{ path: string; kind: 'tuple' | 'scalar' }>()
 const ctx = inject(MARKUP)!
 
 const draft = ref('')
@@ -11,7 +11,6 @@ const inputEl = ref<HTMLInputElement | null>(null)
 
 const editing = computed(() => ctx.editing.value === props.path)
 const name = computed(() => ctx.nameOf(props.path))
-const count = computed(() => ctx.groupCount(props.signature))
 const valid = computed(() => isValidTypeName(draft.value.trim()))
 
 function edit() {
@@ -19,8 +18,10 @@ function edit() {
   ctx.start(props.path)
   nextTick(() => inputEl.value?.focus())
 }
-function apply(all: boolean) {
-  if (valid.value) ctx.submit(props.path, props.signature, draft.value, all)
+// submit принимает имя, лишь если оно свободно для формы позиции; занятое другой
+// формой отклоняется — поле остаётся открытым (как при недопустимом имени).
+function apply() {
+  if (valid.value) ctx.submit(props.path, draft.value)
 }
 </script>
 
@@ -33,7 +34,7 @@ function apply(all: boolean) {
         placeholder="Имя типа"
         spellcheck="false"
         class="w-28 rounded bg-white px-1.5 py-0.5 text-xs text-slate-800 ring-1 ring-indigo-400 focus:outline-none"
-        @keyup.enter="apply(false)"
+        @keyup.enter="apply()"
         @keyup.esc="ctx.cancel()"
       />
       <button
@@ -41,18 +42,9 @@ function apply(all: boolean) {
         class="rounded bg-indigo-600 px-1.5 py-0.5 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-40"
         :disabled="!valid"
         title="Назвать"
-        @click="apply(false)"
+        @click="apply()"
       >
         ✓
-      </button>
-      <button
-        v-if="kind !== 'scalar' && count > 1"
-        type="button"
-        class="rounded bg-indigo-50 px-1.5 py-0.5 text-xs font-medium text-indigo-700 ring-1 ring-indigo-200 hover:bg-indigo-100 disabled:opacity-40"
-        :disabled="!valid"
-        @click="apply(true)"
-      >
-        ко всем ({{ count }})
       </button>
       <button
         type="button"
