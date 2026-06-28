@@ -1,6 +1,6 @@
 import { nodes as N, writeType, writeDecl } from '@essensio/engine'
 import type { JsonValue, Names, Path } from './types'
-import { branchesOf, flattenArrays, unionKeys, valuesForKey } from './merge'
+import { foldBranches, type BranchAlg } from './merge'
 import { mutedNames } from './shape'
 
 /**
@@ -20,36 +20,39 @@ import { mutedNames } from './shape'
 // декларации (`seen`) и множество имён, снятых с печати (накрыли несколько форм).
 type EmitCtx = { names: Names; decls: N.Decl[]; seen: Set<string>; muted: Set<string> }
 
+// Тип позиции — алгебра типа над теми же ветвями, что и сигнатура (foldBranches),
+// поэтому тип и сигнатура согласованы by construction. Носитель — функция
+// (позиция, контекст) → тип: рекурсия в детей задаёт им путь (`path.k` поле,
+// `path[]` элемент), а именование по пути решает combine.
+//
+// Отношение в союзе не именуется — его таблица в нотации неявна (имя получает лишь
+// элемент); кортеж/скаляр/`Пусто` именуемы.
+type TypeR = (path: Path, ctx: EmitCtx) => N.TypeExpr
+const nameable = (tag: string): boolean => tag !== '[]'
+
+const typeAlg: BranchAlg<TypeR> = {
+  tuple: (fields) => (path, ctx) =>
+    N.TTuple(fields.map(([k, child]) => [k, child(`${path}.${k}`, ctx)] as [string, N.TypeExpr])),
+  relation: (elem) => (path, ctx) => N.TRel(elem(`${path}[]`, ctx)),
+  domain: (d) => () => N.TName(d),
+  empty: () => () => N.TName('Пусто'),
+  combine: (parts) => (path, ctx) => {
+    // Пустой массив/множество: элемент пока не наблюдался — пустой кортеж (заглушка).
+    if (parts.length === 0) return named(N.TTuple([]), path, ctx)
+    // Фаза 1 — построить тип каждого члена (рекурсия в детей; их декларации раньше,
+    // пост-порядок). Фаза 2 — именование членов и союза (декларации этого уровня).
+    const built = parts.map(({ tag, value }) => ({ tag, type: value(path, ctx) }))
+    if (built.length === 1) {
+      const m = built[0]
+      return nameable(m.tag) ? named(m.type, path, ctx) : m.type
+    }
+    const members = built.map((m) => (nameable(m.tag) ? named(m.type, `${path}|${m.tag}`, ctx) : m.type))
+    return named(N.TUnion(members), path, ctx)
+  },
+}
+
 function typeAt(values: JsonValue[], path: Path, ctx: EmitCtx): N.TypeExpr {
-  const b = branchesOf(values)
-  const tuple = b.objects.length
-    ? N.TTuple(
-        unionKeys(b.objects).map(
-          (k) => [k, typeAt(valuesForKey(b.objects, k), `${path}.${k}`, ctx)] as [string, N.TypeExpr],
-        ),
-      )
-    : null
-  const rel = b.arrays.length ? N.TRel(typeAt(flattenArrays(b.arrays), `${path}[]`, ctx)) : null
-
-  // Члены в каноническом порядке: тип, тег пути имени, и можно ли члену дать имя
-  // (отношение в союзе не именуется — таблица неявна).
-  const members: Array<{ type: N.TypeExpr; tag: string; nameable: boolean }> = []
-  if (tuple) members.push({ type: tuple, tag: '{}', nameable: true })
-  if (rel) members.push({ type: rel, tag: '[]', nameable: false })
-  for (const d of b.domains) members.push({ type: N.TName(d), tag: d, nameable: true })
-  if (b.hasNull) members.push({ type: N.TName('Пусто'), tag: 'Пусто', nameable: true })
-
-  // Пустой массив: элемент пока не наблюдался — пустой кортеж (именуемая заглушка).
-  if (members.length === 0) return named(N.TTuple([]), path, ctx)
-
-  // Один тип — по пути позиции (отношение неявно, имени не даётся).
-  if (members.length === 1) {
-    const m = members[0]
-    return m.nameable ? named(m.type, path, ctx) : m.type
-  }
-  // Союз: каждый именуемый член — по пути `путь|тег`; весь союз — по пути позиции.
-  const memberTypes = members.map((m) => (m.nameable ? named(m.type, `${path}|${m.tag}`, ctx) : m.type))
-  return named(N.TUnion(memberTypes), path, ctx)
+  return foldBranches(values, typeAlg)(path, ctx)
 }
 
 /**

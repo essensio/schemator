@@ -1,5 +1,5 @@
 import type { JsonValue } from './types'
-import { branchesOf, flattenArrays, unionKeys, valuesForKey } from './merge'
+import { foldBranches, type BranchAlg } from './merge'
 
 /**
  * Канонический ключ формы. Совпадение сигнатур означает узлы одной формы —
@@ -10,21 +10,28 @@ export function signatureOfValue(value: JsonValue): string {
   return signatureOfSet([value])
 }
 
+// Алгебра сигнатуры над ветвями: кортеж — ключи в каноническом (отсортированном)
+// порядке, чтобы сигнатура не зависела от порядка полей; союз ветвей — `(a|b)`;
+// ноль ветвей (пустое множество/массив) — `{}` (элемент = пустой кортеж).
+const sigAlg: BranchAlg<string> = {
+  tuple: (fields) =>
+    `{${fields
+      .slice()
+      .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
+      .map(([k, s]) => `${JSON.stringify(k)}:${s}`)
+      .join(',')}}`,
+  relation: (elem) => `${elem}[]`,
+  domain: (d) => d,
+  empty: () => 'Пусто',
+  combine: (parts) =>
+    parts.length === 0 ? '{}' : parts.length === 1 ? parts[0].value : `(${parts.map((p) => p.value).join('|')})`,
+}
+
 /**
  * Сигнатура формы множества значений одной логической позиции. Строится из ветвей
- * (как и тип в эмиттере), поэтому сигнатура и печатаемый тип согласованы; union
- * ветвей даёт `(a|b)`, пустой массив — `{}[]` (элемент = пустой кортеж).
+ * (тем же обходом foldBranches, что и тип в эмиттере), поэтому сигнатура и
+ * печатаемый тип согласованы by construction.
  */
 export function signatureOfSet(values: JsonValue[]): string {
-  const b = branchesOf(values)
-  const parts: string[] = []
-  if (b.objects.length) {
-    const keys = unionKeys(b.objects).sort()
-    parts.push(`{${keys.map((k) => `${JSON.stringify(k)}:${signatureOfSet(valuesForKey(b.objects, k))}`).join(',')}}`)
-  }
-  if (b.arrays.length) parts.push(`${signatureOfSet(flattenArrays(b.arrays))}[]`)
-  for (const d of b.domains) parts.push(d)
-  if (b.hasNull) parts.push('Пусто')
-  if (parts.length === 0) return '{}'
-  return parts.length === 1 ? parts[0] : `(${parts.join('|')})`
+  return foldBranches(values, sigAlg)
 }
